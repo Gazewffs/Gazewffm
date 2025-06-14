@@ -5,18 +5,43 @@ from datetime import datetime, timedelta
 from telethon import TelegramClient, events
 from telethon.tl.types import MessageEntityBold, MessageEntityItalic
 import logging
+import json
+import os
 from config import API_ID, API_HASH, PHONE_NUMBER, SOURCE_CHANNEL, TARGET_CHANNEL, SESSION_NAME
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Accuracy tracking
-accuracy_stats = {
-    'total_signals': 0,
-    'wins': 0,
-    'accuracy': 0.0
-}
+# Accuracy tracking with persistence
+STATS_FILE = 'daily_stats.json'
+
+def load_daily_stats():
+    """Load daily statistics from file"""
+    if os.path.exists(STATS_FILE):
+        try:
+            with open(STATS_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            pass
+    return {
+        'total_signals': 0,
+        'wins': 0,
+        'losses': 0,
+        'accuracy': 0.0,
+        'start_date': datetime.now().strftime('%Y-%m-%d'),
+        'last_reset': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    }
+
+def save_daily_stats():
+    """Save daily statistics to file"""
+    try:
+        with open(STATS_FILE, 'w') as f:
+            json.dump(accuracy_stats, f, indent=2)
+    except Exception as e:
+        logger.error(f"Error saving stats: {e}")
+
+accuracy_stats = load_daily_stats()
 
 def calculate_accuracy():
     """Calculate accuracy percentage"""
@@ -117,6 +142,34 @@ def format_result_message(result_text):
 
 **🚀 Stay tuned for the next signal!**"""
 
+def format_daily_report():
+    """Format the daily accuracy report"""
+    accuracy = calculate_accuracy()
+    losses = accuracy_stats.get('losses', accuracy_stats['total_signals'] - accuracy_stats['wins'])
+    
+    report_date = datetime.now().strftime('%Y-%m-%d')
+    report_time = datetime.now().strftime('%H:%M:%S')
+    
+    return f"""**📊 DAILY PERFORMANCE REPORT 📊**
+**🔥BILLIONAIRE BOSS🔥**
+
+**📅 Date: {report_date}**
+**🕘 Report Time: {report_time}**
+
+**📈 TRADING STATISTICS:**
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+**🚀 Total Signals: {accuracy_stats['total_signals']}**
+**✅ Total Wins: {accuracy_stats['wins']}**
+**❌ Total Losses: {losses}**
+**📊 Success Rate: {accuracy}%**
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+**🎯 PERFORMANCE ANALYSIS:**
+{'🔥 EXCELLENT PERFORMANCE! 🔥' if accuracy >= 80 else '💪 GOOD PERFORMANCE! 💪' if accuracy >= 60 else '⚡ ROOM FOR IMPROVEMENT ⚡' if accuracy >= 40 else '🎯 FOCUS & STRATEGY NEEDED 🎯'}
+
+**💎 Tomorrow is a new opportunity! 💎**
+**🚀 Stay tuned for more profitable signals! 🚀**"""
+
 def is_signal_message(message_text):
     """Check if message is a trading signal"""
     signal_indicators = [
@@ -192,6 +245,7 @@ async def main():
                 
                 # Update stats
                 accuracy_stats['total_signals'] += 1
+                save_daily_stats()
                 
             elif is_result_message(message_text):
                 # Process result message
@@ -214,17 +268,77 @@ async def main():
                 await client.send_message(TARGET_CHANNEL, formatted_result, parse_mode='md')
                 logger.info(f"Result forwarded: {result_text}")
                 
-                # Update accuracy
+                # Update accuracy and losses count
                 accuracy_stats['accuracy'] = calculate_accuracy()
+                if result_text != "WIN ✅":
+                    accuracy_stats['losses'] = accuracy_stats.get('losses', 0) + 1
+                
+                # Save stats to file
+                save_daily_stats()
                 logger.info(f"Current accuracy: {accuracy_stats['accuracy']}% (Wins: {accuracy_stats['wins']}, Total: {accuracy_stats['total_signals']})")
                 
         except Exception as e:
             logger.error(f"Error processing message: {e}")
             logger.error(f"Message content: {message_text}")
+
+async def send_daily_report(client):
+    """Send daily performance report"""
+    try:
+        daily_report = format_daily_report()
+        await client.send_message(TARGET_CHANNEL, daily_report, parse_mode='md')
+        logger.info("Daily report sent successfully!")
+        
+        # Reset stats for next day
+        accuracy_stats.update({
+            'total_signals': 0,
+            'wins': 0,
+            'losses': 0,
+            'accuracy': 0.0,
+            'last_reset': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        })
+        save_daily_stats()
+        logger.info("Daily stats reset for new day")
+        
+    except Exception as e:
+        logger.error(f"Error sending daily report: {e}")
+
+async def schedule_daily_report(client):
+    """Schedule daily report at 10 PM"""
+    while True:
+        try:
+            now = datetime.now()
+            # Set target time to 10 PM today
+            target_time = now.replace(hour=22, minute=0, second=0, microsecond=0)
+            
+            # If it's already past 10 PM today, set target to 10 PM tomorrow
+            if now >= target_time:
+                target_time += timedelta(days=1)
+            
+            # Calculate time until next 10 PM
+            time_until_report = (target_time - now).total_seconds()
+            
+            logger.info(f"Next daily report scheduled for: {target_time.strftime('%Y-%m-%d %H:%M:%S')}")
+            logger.info(f"Time until report: {time_until_report/3600:.1f} hours")
+            
+            # Wait until 10 PM
+            await asyncio.sleep(time_until_report)
+            
+            # Send the daily report
+            await send_daily_report(client)
+            
+        except Exception as e:
+            logger.error(f"Error in daily report scheduler: {e}")
+            # Wait 1 hour before retrying if there's an error
+            await asyncio.sleep(3600)
+    
+    # Start the daily report scheduler
+    asyncio.create_task(schedule_daily_report(client))
     
     # Keep the client running
     logger.info("Listening for messages...")
+    logger.info("Daily report scheduler started - reports will be sent at 10 PM daily")
     await client.run_until_disconnected()
 
 if __name__ == '__main__':
     asyncio.run(main())
+                
