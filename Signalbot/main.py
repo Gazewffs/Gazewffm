@@ -330,7 +330,7 @@ async def schedule_daily_report(client):
             logger.error(f"Error in daily report scheduler: {e}")
             # Wait 1 hour before retrying if there's an error
             await asyncio.sleep(3600)
-    
+
     # Start the daily report scheduler
     asyncio.create_task(schedule_daily_report(client))
     
@@ -341,4 +341,4 @@ async def schedule_daily_report(client):
 
 if __name__ == '__main__':
     asyncio.run(main())
-                
+    
